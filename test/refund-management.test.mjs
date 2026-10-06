@@ -7,9 +7,37 @@ import { ensureRefundManagementSchema, syncRefundManagement, refundManagementVie
   refundManagementDetail, refundPaymentState } from '../src/domain/refund-management.mjs';
 import { mutateRefundManagement } from '../src/domain/refund-management-actions.mjs';
 import { ORDER_STATUS_CATALOG, decorateOrderStatus } from '../src/domain/order-status.mjs';
-import { refundNotesMarkup, safeTLinksMarkup, caseLinkMarkup, createRefundManagementState, renderRefundManagement } from '../public/refund-management.js';
+import { refundNotesMarkup, safeTLinksMarkup, caseLinkMarkup, createRefundManagementState, renderRefundManagement, refundManagementParams, refundPeriodRange } from '../public/refund-management.js';
 
 const at = day => `2026-09-${String(day).padStart(2, '0')}T12:00:00.000Z`;
+test('refund periods use Brasília dates, inclusive days and calendar month boundaries', () => {
+  const now = new Date('2026-10-01T02:30:00Z'); // Still September 30 in Brasília.
+  assert.deepEqual(refundPeriodRange('today', now), { from: '2026-09-30', to: '2026-09-30' });
+  assert.deepEqual(refundPeriodRange('yesterday', now), { from: '2026-09-29', to: '2026-09-29' });
+  assert.deepEqual(refundPeriodRange('7', now), { from: '2026-09-24', to: '2026-09-30' });
+  assert.deepEqual(refundPeriodRange('30', now), { from: '2026-09-01', to: '2026-09-30' });
+  assert.deepEqual(refundPeriodRange('month', now), { from: '2026-09-01', to: '2026-09-30' });
+  assert.deepEqual(refundPeriodRange('month', new Date('2026-10-01T03:00:00Z')), { from: '2026-10-01', to: '2026-10-01' });
+  assert.deepEqual(refundPeriodRange('previousMonth', new Date('2024-03-01T12:00:00Z')), { from: '2024-02-01', to: '2024-02-29' });
+  assert.deepEqual(refundPeriodRange('previousMonth', new Date('2026-01-01T12:00:00Z')), { from: '2025-12-01', to: '2025-12-31' });
+  assert.deepEqual(refundPeriodRange('all', now), { from: '', to: '' });
+  assert.throws(() => refundPeriodRange('invalid', now), TypeError);
+});
+test('refund date selection combines filters and clears selected rows only when the scope changes', () => {
+  const state = createRefundManagementState();
+  const all = refundManagementParams(state, 'store-a,store-b');
+  assert.equal(all.has('from'), false); assert.equal(all.has('to'), false);
+  Object.assign(state, { period: 'custom', from: '2026-09-02', to: '2026-09-03', query: 'sku', payment: 'pending' });
+  state.selection.set('row', {});
+  const filtered = refundManagementParams(state, 'store-a,store-b');
+  assert.equal(filtered.get('from'), '2026-09-02'); assert.equal(filtered.get('to'), '2026-09-03');
+  assert.equal(filtered.get('payment'), 'pending'); assert.equal(filtered.get('query'), 'sku');
+  assert.equal(state.selection.size, 0);
+  state.selection.set('row', {}); refundManagementParams(state, 'store-a,store-b');
+  assert.equal(state.selection.size, 1);
+  state.to = '2026-09-04'; refundManagementParams(state, 'store-a,store-b');
+  assert.equal(state.selection.size, 0);
+});
 test('SAFE-T links display manual pending claims and deduplicate automatic IDs without inventing missing claims', () => {
   assert.equal(safeTLinksMarkup({}, { inline: true }), '');
   assert.equal(safeTLinksMarkup({}), '—');

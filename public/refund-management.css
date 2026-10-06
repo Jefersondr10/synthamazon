@@ -30,6 +30,44 @@
 .rm-payment-notice strong { display: block; font-size: 12px; }
 .rm-payment-notice small { display: block; color: var(--muted); margin-top: 5px; font-size: 10px; line-height: 1.5; }
 .rm-panel { margin-top: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--white); overflow: visible; }
+.rm-period-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding: 16px; border-bottom: 1px solid var(--line); }
+.rm-period-label { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rm-period-label > svg { width: 34px; height: 34px; padding: 8px; border-radius: 10px; color: var(--blue); background: var(--rm-amber-soft); flex-shrink: 0; }
+.rm-period-label span { display: grid; gap: 4px; }
+.rm-period-label small { font-size: 10px; color: var(--muted); }
+.rm-period-label strong { font-size: 12px; font-weight: 650; color: var(--rm-ink); }
+.rm-period-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rm-period-presets { display: flex; gap: 3px; padding: 4px; background: var(--rm-soft); border: 1px solid var(--line); border-radius: 10px; }
+.rm-period-presets button, .rm-date-shortcuts button { border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 7px; min-height: 34px; padding: 7px 12px; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.rm-period-presets button[aria-pressed="true"] { background: var(--white); color: var(--blue); border-color: var(--line); box-shadow: 0 2px 5px #0000000c; }
+.rm-period-presets button:hover, .rm-date-shortcuts button:hover { color: var(--blue); }
+.rm-date-picker { position: relative; }
+.rm-date-picker summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 10px 14px; list-style: none; cursor: pointer; color: var(--rm-ink); background: var(--white); border: 1px solid var(--line); border-radius: 10px; font-size: 11px; font-weight: 600; }
+.rm-date-picker summary::-webkit-details-marker { display: none; }
+.rm-date-picker summary svg { width: 14px; height: 14px; color: var(--muted); }
+.rm-date-picker[open] summary { border-color: var(--blue); color: var(--blue); }
+.rm-date-panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 9; width: min(350px, calc(100vw - 48px)); padding: 18px; background: var(--white); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 45px #00000026; }
+.rm-date-heading { display: grid; gap: 5px; }
+.rm-date-heading strong { font-size: 14px; color: var(--rm-ink); }
+.rm-date-heading small { font-size: 10px; color: var(--muted); }
+.rm-date-shortcuts { display: flex; gap: 6px; margin: 16px 0; }
+.rm-date-shortcuts button { flex: 1; min-width: 0; padding: 6px 8px; border-color: var(--line); background: var(--rm-soft); }
+.rm-date-shortcuts button[aria-pressed="true"] { color: var(--blue); border-color: var(--blue); }
+.rm-date-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.rm-date-fields label { display: grid; gap: 6px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.rm-date-fields input { min-width: 0; width: 100%; height: 42px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; color: var(--rm-ink); background: var(--rm-soft); color-scheme: inherit; }
+.rm-date-error { margin: 10px 0 0; color: #c34b41; font-size: 11px; }
+.rm-date-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.rm-date-footer .button { min-height: 38px; font-size: 11px; }
+.rm-period-toolbar button:focus-visible, .rm-date-picker summary:focus-visible, .rm-date-fields input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+@media (max-width: 720px) {
+  .rm-period-toolbar { align-items: stretch; gap: 12px; padding: 14px; }
+  .rm-period-label, .rm-period-actions { width: 100%; }
+  .rm-period-presets { width: 100%; }
+  .rm-period-presets button { flex: 1; padding: 6px 5px; font-size: 10px; }
+  .rm-date-picker { width: 100%; }
+  .rm-date-panel { width: 100%; box-sizing: border-box; }
+}
 .rm-filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 14px; border-bottom: 1px solid var(--line); }
 .rm-search { flex: 1 1 240px; min-width: 190px; max-width: 410px; display: flex; align-items: center; gap: 8px; height: 35px; border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; background: var(--white); }
 .rm-search svg { width: 14px; height: 14px; color: var(--muted); flex-shrink: 0; }
