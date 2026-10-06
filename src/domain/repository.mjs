@@ -32,6 +32,7 @@ import { ensureAccountBalanceSchema, accountBalanceView } from './account-balanc
 import { inventoryForecast } from './inventory-forecast.mjs';
 import { inventoryQuantities } from '../../public/inventory-quantities.js';
 import { productSales } from './product-sales.mjs';
+import { productPanel, panelRange } from './product-panel.mjs';
 import { ensureSalesAlertSchema, syncSalesAlerts, salesAlertsView, saveSalesAlert } from './sales-alerts.mjs';
 
 const SAFE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -232,6 +233,7 @@ export class Repository {
   // connection's writes and external imports invalidate it before reuse.
   #ordersCache = null;
   #salesOrdersCache = null;
+  #productPanelCache = new Map();
   #inventoryCache = new Map();
   #productSkuCache = {};
 
@@ -757,20 +759,45 @@ export class Repository {
   salesAlerts(filters = {}) { return salesAlertsView(this.db,filters); }
   saveSalesAlert(input) { return saveSalesAlert(this.db,input); }
 
-  productSales(filters = {}) {
+  #salesOrders(filters = {}) {
     const storeId = canonicalStoreSelection(filters.storeId);
     parseStoreSelection(storeId);
     const storeIds = parseStoreSelection(storeId) || this.listStores().map(store => store.storeId);
     const revision = this.#ordersRevision();
     if (this.#salesOrdersCache?.storeId !== storeId || this.#salesOrdersCache.revision !== revision) {
-      const orders = this.db.prepare("SELECT payload_json FROM entities WHERE source='orders' AND active=1 AND (? IS NULL OR store_id IN (SELECT value FROM json_each(?)))").all(...storeArgs(storeId)).map(row => {
+      const orders = [];
+      for (const row of this.db.prepare("SELECT payload_json FROM entities WHERE source='orders' AND active=1 AND (? IS NULL OR store_id IN (SELECT value FROM json_each(?)))").iterate(...storeArgs(storeId))) {
         const {storeId,orderId,createdAt,status,fulfillmentMode,items} = JSON.parse(row.payload_json);
-        return {storeId,orderId,createdAt,status,fulfillmentMode,items};
-      });
+        orders.push({storeId,orderId,createdAt,status,fulfillmentMode,items});
+      }
       this.#salesOrdersCache = {storeId, revision, orders};
     }
-    const orders = this.#salesOrdersCache.orders;
+    return {orders:this.#salesOrdersCache.orders, storeIds};
+  }
+
+  productSales(filters = {}) {
+    const {orders,storeIds} = this.#salesOrders(filters);
     return productSales({orders,coverage:this.#coverage({storeId:filters.storeId}),storeIds,channels:filters.channels?.split(','),from:filters.from,to:filters.to});
+  }
+
+  productPanel(filters = {}) {
+    const storeId = canonicalStoreSelection(filters.storeId);
+    const now = new Date(), range = panelRange({...filters,now});
+    const revision = this.#ordersRevision(), key = JSON.stringify([storeId,filters.channels,range.from,range.to]);
+    const cached = this.#productPanelCache.get(key);
+    if (cached?.revision === revision && cached.expiresAt > Number(now)) return cached.data;
+    const {orders,storeIds} = this.#salesOrders({storeId});
+    const returns = this.db.prepare('SELECT store_id,return_id,payload_json FROM customer_return_records WHERE (? IS NULL OR store_id IN (SELECT value FROM json_each(?)))')
+      .iterate(...storeArgs(storeId));
+    function* records() { for (const row of returns) yield {...JSON.parse(row.payload_json),storeId:row.store_id,returnId:row.return_id}; }
+    const returnJobs = this.db.prepare('SELECT store_id AS storeId,report_type AS reportType,status,from_at AS "from",to_at AS "to",warning_count AS warningCount FROM customer_return_report_jobs WHERE (? IS NULL OR store_id IN (SELECT value FROM json_each(?)))').all(...storeArgs(storeId));
+    const data = productPanel({orders,storeIds,returns:records(),returnJobs,coverage:this.#coverage({storeId}),channels:filters.channels?.split(','),from:range.from,to:range.to,now});
+    if (revision === this.#ordersRevision()) {
+      for (const [id,value] of this.#productPanelCache) if(value.revision !== revision || value.expiresAt <= Number(now))this.#productPanelCache.delete(id);
+      if (this.#productPanelCache.size >= 8) this.#productPanelCache.delete(this.#productPanelCache.keys().next().value);
+      this.#productPanelCache.set(key,{revision,expiresAt:Number(now)+60_000,data});
+    }
+    return data;
   }
 
   inventory(filters = {}) {

@@ -18,6 +18,7 @@ const inventoryPlanningReady = import('/inventory-planning.js');
 let inventoryPlanning, inventoryPreferences;
 let productSalesModule, productSalesState, productSalesData, productSalesCleanup;
 let salesAlertsModule, salesAlertsCleanup;
+let productPanelModule, productPanelState, productPanelData, productPanelCleanup;
 let productLinksSettingsModule, productLinksSettingsCleanup;
 const productLinksListState = {query:'',mode:'ALL',linkStatus:'all',limit:50,offset:0,storeId:null};
 const salesAlertsState = {status:'new',mode:'all',type:'all',query:'',limit:24,offset:0,loading:false};
@@ -109,6 +110,7 @@ const titles = {
   dashboard: 'Visão geral',
   orders: 'Pedidos',
   'product-sales': 'Vendas por produto',
+  'product-panel': 'Painel de produtos',
   'sales-alerts': 'Alertas de vendas',
   'refund-management': 'Gerenciar reembolsos',
   charges: 'Cobranças',
@@ -1284,10 +1286,10 @@ function setView(view, { preservePeriod = false, query = '' } = {}) {
   if (!preservePeriod && !['refunds', 'refund-management', 'charges', 'customer-returns'].includes(view)) setPeriodPreset('today', false);
   history.replaceState(null, '', `#${view}`);
   document.body.dataset.view = view;
-  $('#page-context').textContent = ({ dashboard: 'PAINEL DA OPERAÇÃO', orders: 'CONSULTA DE PEDIDOS', 'product-sales': 'DESEMPENHO POR CANAL', charges: 'CONFERÊNCIA FINANCEIRA', 'customer-returns': 'ACOMPANHAMENTO', returns: 'LOGÍSTICA REVERSA', inventory: 'POSIÇÃO DE ESTOQUE', settings: 'SEU ESPAÇO DE TRABALHO' })[view] || 'ACOMPANHAMENTO';
+  $('#page-context').textContent = ({ dashboard: 'PAINEL DA OPERAÇÃO', orders: 'CONSULTA DE PEDIDOS', 'product-panel': 'VENDAS E DEVOLUÇÕES', 'product-sales': 'DESEMPENHO POR CANAL', charges: 'CONFERÊNCIA FINANCEIRA', 'customer-returns': 'ACOMPANHAMENTO', returns: 'LOGÍSTICA REVERSA', inventory: 'POSIÇÃO DE ESTOQUE', settings: 'SEU ESPAÇO DE TRABALHO' })[view] || 'ACOMPANHAMENTO';
   document.querySelectorAll('[data-view]').forEach(button => { button.classList.toggle('active', button.dataset.view === view); button.setAttribute('aria-current', button.dataset.view === view ? 'page' : 'false'); });
   $('#page-title').textContent = titles[view]; $('#breadcrumb-current').textContent = titles[view];
-  $('#period-bar').hidden = ['sales-alerts', 'inventory', 'product-sales', 'returns', 'settings', 'refunds', 'refund-management', 'charges', 'customer-returns'].includes(view);
+  $('#period-bar').hidden = ['sales-alerts', 'product-panel', 'inventory', 'product-sales', 'returns', 'settings', 'refunds', 'refund-management', 'charges', 'customer-returns'].includes(view);
   $('.page-heading').hidden = view === 'refund-management';
   document.querySelectorAll('[data-history-period]').forEach(button => { button.hidden = !['orders', 'refunds', 'charges', 'customer-returns', 'safe-t'].includes(view); });
   document.title = `${titles[view]} · SynthAmazon`;
@@ -1489,6 +1491,24 @@ function bindClearFilters() {
   button.addEventListener('click', clearViewFilters);
   filters.insertBefore(button, filters.querySelector('.result-count'));
 }
+function renderProductPanel() {
+  productPanelCleanup?.(); productPanelCleanup=null;
+  $('#content').innerHTML=productPanelModule.renderProductPanel(productPanelData,productPanelState,productPanelHelpers);
+  bindContent();
+}
+const productPanelHelpers = {storeName,inventoryAsinLink,reasonLabel:code=>customerReturnReasons[code]||(code==='NOT_PROVIDED'?'Motivo não informado':code)};
+async function updateProductPanel(changes) {
+  const next={...productPanelState,...changes},version=++state.version,root=$('#content');
+  root.setAttribute('aria-busy','true');
+  root.querySelectorAll('button,input').forEach(b=>{b.disabled=true;});
+  showMessage('Atualizando indicadores…');
+  try {
+    const data=await api(`/api/product-panel?${params({from:next.from,to:next.to,channels:next.channels.join(',')})}`);
+    if(version!==state.version||state.view!=='product-panel')return;
+    productPanelState=next;productPanelData=data;state.data=data;showMessage('');renderProductPanel();
+  } catch(error) {if(version===state.version&&state.view==='product-panel')showMessage(error.message,'error');}
+  finally {if(version===state.version&&state.view==='product-panel'){root.setAttribute('aria-busy','false');root.querySelectorAll('button,input').forEach(b=>{b.disabled=false;});}}
+}
 function renderProductSales() { productSalesCleanup?.(); productSalesCleanup=null; $('#content').innerHTML = productSalesModule.renderProductSales(productSalesData, productSalesState, {storeName,inventoryAsinLink}); bindContent(); }
 async function updateProductSales({channels=productSalesState.channels,from=productSalesState.customFrom,to=productSalesState.customTo,period,focus}) {
   const version = ++state.version;
@@ -1521,6 +1541,7 @@ function bindContent() {
     salesAlertsCleanup=salesAlertsModule.bindSalesAlerts($('#content'),state.data,salesAlertsState,{refresh:()=>loadView(false,{preserveContent:true}),api,csrf:state.csrf,isCurrent:(()=>{const storeId=state.storeId,version=state.version;return()=>state.view==='sales-alerts'&&state.storeId===storeId&&state.version===version;})(),message:showMessage,updateCount:updateSalesAlertCount});
     return;
   }
+  if(state.view==='product-panel'&&productPanelModule){productPanelCleanup?.();productPanelCleanup=productPanelModule.bindProductPanel($('#content'),productPanelData,productPanelState,{change:updateProductPanel,redraw:renderProductPanel});return;}
   if (state.view === 'product-sales' && productSalesModule) { productSalesCleanup?.(); productSalesCleanup=productSalesModule.bindProductSales($('#content'),productSalesData,productSalesState,renderProductSales,changeProductSalesChannels,changeProductSalesDates); return; }
   prepareTables($('#content'));
   if (state.view === 'dashboard') layout.tabbedSections($('#content'), node => node.matches('.current-balances') || node.getAttribute('aria-label') === 'Resultado do período' ? 'Resumo' : 'Detalhamento financeiro', { remember: true, label: 'Seções da visão geral' });
@@ -1647,6 +1668,7 @@ function savedViewRefresh() {
     ? loadView(false, { preserveContent: true, refundFinalized: options.refundFinalized === true }) : Promise.resolve();
 }
 async function loadView(restoreSearch = false, { preserveContent = false, refundFinalized = false } = {}) {
+  productPanelCleanup?.(); productPanelCleanup=null;
   productSalesCleanup?.(); productSalesCleanup=null;
   salesAlertsCleanup?.(); salesAlertsCleanup=null;
   productLinksSettingsCleanup?.(); productLinksSettingsCleanup=null;
@@ -1687,6 +1709,15 @@ async function loadView(restoreSearch = false, { preserveContent = false, refund
       if(version!==state.version)return;
       state.data=data;html=salesAlertsModule.renderSalesAlerts(data,salesAlertsState,{storeName,inventoryAsinLink});
       refreshSalesAlertCount();
+    } else if (view === 'product-panel') {
+      productPanelModule ||= await loadScreenModule('/product-panel.js');
+      if(version!==state.version)return;
+      productPanelState ||= productPanelModule.createProductPanelState();
+      if(productPanelState.period!=='custom')Object.assign(productPanelState,productPanelModule.panelDates(productPanelState.period));
+      const data=await api(`/api/product-panel?${params({from:productPanelState.from,to:productPanelState.to,channels:productPanelState.channels.join(',')})}`);
+      if(version!==state.version)return;
+      productPanelData=data;state.data=data;
+      html=productPanelModule.renderProductPanel(data,productPanelState,productPanelHelpers);
     } else if (view === 'product-sales') {
       productSalesModule ||= await loadScreenModule('/product-sales.js');
       productSalesState ||= productSalesModule.createProductSalesState();

@@ -27,6 +27,8 @@ const ASSETS = new Map([
   ['/inventory-quantities.js', ['inventory-quantities.js', 'text/javascript; charset=utf-8']],
     ['/product-sales.js', ['product-sales.js', 'text/javascript; charset=utf-8']],
     ['/select-menus.js', ['select-menus.js', 'text/javascript; charset=utf-8']],
+  ['/product-panel.js', ['product-panel.js', 'text/javascript; charset=utf-8']],
+  ['/product-panel.css', ['product-panel.css', 'text/css; charset=utf-8']],
   ['/product-sales.css', ['product-sales.css', 'text/css; charset=utf-8']],
   ['/sales-alerts.js', ['sales-alerts.js', 'text/javascript; charset=utf-8']],
   ['/sales-alerts.css', ['sales-alerts.css', 'text/css; charset=utf-8']],
@@ -329,7 +331,7 @@ export async function startWebServer({ repository, config = {}, rootDir, port = 
 
       if (access && pathname.startsWith('/api/')) {
         const segments = pathname.split('/').filter(Boolean);
-        const category = ['bootstrap','reload','settings','local-reviews','dashboard','orders','inventory','product-sales','sales-alerts','returns','refunds','charges','reviews','customer-returns','safe-t','refund-management'].includes(segments[1]) ? segments[1] : 'unknown';
+        const category = ['bootstrap','reload','settings','local-reviews','dashboard','orders','inventory','product-panel','product-sales','sales-alerts','returns','refunds','charges','reviews','customer-returns','safe-t','refund-management'].includes(segments[1]) ? segments[1] : 'unknown';
         requestMetric = { event:'API_REQUEST', requestId:randomBytes(8).toString('hex'), method:request.method,
           route:`/api/${category}${segments.length>2?'/:detail':''}` };
         response.setHeader('X-Request-Id',requestMetric.requestId);
@@ -512,10 +514,10 @@ export async function startWebServer({ repository, config = {}, rootDir, port = 
           json(response, 200, await repository.dashboardTransactions(filters));
         } else if (pathname === '/api/orders') {
           json(response, 200, await repository.orders(filtersFrom(url.searchParams, new Set([...FILTER_KEYS, 'reviewStatus', 'net']), { multipleStores: true, multipleStatus: true })));
-        } else if (pathname === '/api/product-sales') {
+        } else if (pathname === '/api/product-sales' || pathname === '/api/product-panel') {
           const filters=filtersFrom(url.searchParams, new Set(['storeId','channels','from','to']), { multipleStores:true });
           if ((filters.from===undefined)!==(filters.to===undefined) || filters.from!==undefined&&(!/^\d{4}-\d{2}-\d{2}$/.test(filters.from)||!/^\d{4}-\d{2}-\d{2}$/.test(filters.to))) invalid();
-          json(response, 200, await repository.productSales(filters));
+          json(response, 200, await repository[pathname === '/api/product-panel' ? 'productPanel' : 'productSales'](filters));
         } else if (pathname === '/api/inventory') {
           json(response, 200, await repository.inventory(filtersFrom(url.searchParams, new Set([...FILTER_KEYS, 'forecast']), { multipleStores:true })));
         } else if (pathname === '/api/returns') {

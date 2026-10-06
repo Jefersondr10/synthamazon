@@ -8,7 +8,7 @@ export function scopeRepository(repository, storeId) {
     return { ...value, storeId };
   };
   const scoped = {};
-  for (const name of ['productCostGroup', 'productSkuList', 'dashboard', 'dashboardTransactions', 'orders', 'productSales', 'salesAlerts', 'inventory', 'returns', 'customerReturns', 'safeTCases', 'refundManagement', 'syncRefundManagement']) {
+  for (const name of ['productCostGroup', 'productSkuList', 'dashboard', 'dashboardTransactions', 'orders', 'productPanel','productSales', 'salesAlerts', 'inventory', 'returns', 'customerReturns', 'safeTCases', 'refundManagement', 'syncRefundManagement']) {
     scoped[name] = (input, ...args) => repository[name](filters(input), ...args);
   }
   for (const name of ['orderDetail', 'refundManagementDetail']) {

@@ -2,7 +2,7 @@ import { Worker, isMainThread, parentPort, workerData } from 'node:worker_thread
 import { Repository } from '../domain/repository.mjs';
 
 const mutations = new Set(['saveProductCostGroup','saveProductCostLink','loadWorkspace','syncRefundManagement','saveFinancialReview','saveFinancialReviews','saveLocalReview','saveRefundManagement','saveReturnedManagement','saveReviewStatus','saveSalesAlert']);
-const methods = new Set(['productCostGroup','productSkuList','productCostLink','syncSalesAlerts','salesAlerts',...mutations,'customerReturns','dashboard','dashboardTransactions','financialCaseDetail','financialCases','getBootstrap','inventory','localReview','orderDetail','orders','productSales','refundManagement','refundManagementDetail','returns','reviewStatusSettings','safeTCases']);
+const methods = new Set(['productCostGroup','productSkuList','productCostLink','syncSalesAlerts','salesAlerts',...mutations,'customerReturns','dashboard','dashboardTransactions','financialCaseDetail','financialCases','getBootstrap','inventory','localReview','orderDetail','orders','productPanel','productSales','refundManagement','refundManagementDetail','returns','reviewStatusSettings','safeTCases']);
 const unavailable = () => Object.assign(new Error('Repository unavailable.'), {code:'REPOSITORY_UNAVAILABLE'});
 const quickReads = new Set(['productCostLink','getBootstrap','reviewStatusSettings','localReview','salesAlerts']);
 
