@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light" data-design="graphite">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>SynthAmazon · Visão da operação</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/refund-management.css">
+  <link rel="stylesheet" href="/design.css">
+  <link rel="stylesheet" href="/product-sales.css">
+  <link rel="stylesheet" href="/sales-alerts.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Ir para o conteúdo</a>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="topbar">
+        <a class="brand" href="#dashboard" aria-label="SynthAmazon, início"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M23 8H12a5 5 0 0 0 0 10h8a4 4 0 0 1 0 8H8M9 24v-5M23 8V3" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></span><span>Synth<span class="brand-light">Amazon</span><small>GESTÃO DA OPERAÇÃO</small></span></a>
+        <div class="breadcrumb">Operação <span>/</span> <strong id="breadcrumb-current">Visão geral</strong></div>
+        <strong class="header-store-name" id="header-store-name" aria-live="polite" aria-atomic="true"></strong>
+        <div class="topbar-right">
+          <button class="button theme-toggle" id="theme-toggle" aria-label="Ativar tema claro" aria-pressed="true"><span data-icon="sun"></span><span class="theme-label">Tema claro</span></button>
+          <button type="button" class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Abrir menu" aria-expanded="false" aria-controls="primary-navigation"><span data-icon="menu"></span></button>
+          <span class="market-label">BR <span>Amazon Brasil</span></span>
+          <a class="button" id="account-logout" href="/oauth2/sign_out?rd=/oauth2/sign_in" hidden>Sair</a>
+          <div class="store-picker filter-select">
+            <select id="store" aria-label="Loja" hidden tabindex="-1"></select>
+            <button type="button" class="store-trigger filter-trigger" id="store-trigger" aria-label="Selecionar lojas" aria-haspopup="dialog" aria-expanded="false" aria-controls="store-menu" disabled>Selecionar loja</button>
+            <div class="store-menu filter-menu" id="store-menu" role="dialog" aria-label="Selecionar lojas" hidden>
+              <div class="store-menu-heading" id="store-menu-label">Suas lojas</div>
+              <p class="store-menu-hint">Combine as lojas que deseja consultar</p>
+              <div id="store-options" role="group" aria-labelledby="store-menu-label"></div>
+              <div class="store-menu-footer"><span id="store-selection-count" role="status" aria-live="polite"></span><button type="button" class="button primary" id="apply-stores">Aplicar</button></div>
+            </div>
+          </div>
+          <span class="avatar" aria-label="Origem">OC</span>
+        </div>
+      </div>
+    <nav class="nav top-navigation" id="primary-navigation" aria-label="Navegação principal">
+      <button class="nav-item active" data-view="dashboard"><span class="nav-icon" data-icon="dashboard"></span>Visão geral</button>
+      <button class="nav-item" data-view="orders"><span class="nav-icon" data-icon="orders"></span>Pedidos</button>
+      <button class="nav-item" data-view="refund-management"><span class="nav-icon" data-icon="orders"></span><span>Gerenciar reembolsos</span></button>
+      <button class="nav-item" data-view="returns"><span class="nav-icon" data-icon="refund"></span><span>Devolvido ao vendedor</span></button>
+      <button class="nav-item" data-view="charges"><span class="nav-icon" data-icon="money"></span>Cobranças</button>
+      <button class="nav-item" data-view="customer-returns"><span class="nav-icon" data-icon="refund"></span>Gerenciar Devoluções</button>
+      <button class="nav-item" data-view="sales-alerts"><span class="nav-icon" data-icon="bell"></span>Alertas de vendas<span class="sales-alert-nav-count" id="sales-alert-count" hidden></span></button>
+      <button class="nav-item" data-view="product-sales"><span class="nav-icon" data-icon="chart"></span>Vendas por produto</button>
+      <button class="nav-item" data-view="inventory"><span class="nav-icon" data-icon="inventory"></span>Estoque FBA</button>
+      <button class="nav-item" data-view="settings"><span class="nav-icon" data-icon="settings"></span>Configurações</button>
+      <div class="mobile-menu-footer"><a id="mobile-account-logout" href="/oauth2/sign_out?rd=/oauth2/sign_in" hidden><span data-icon="logout"></span>Sair da conta</a></div>
+    </nav>
+    </header>
+    <main id="main" tabindex="-1">
+      <div class="page-heading"><div><div class="eyebrow" id="page-context">PAINEL DA OPERAÇÃO</div><h1 id="page-title">Visão geral</h1></div><button class="button secondary" id="reload" title="Recarregar os dados já importados"><span data-icon="refresh"></span>Atualizar painel</button></div>
+      <div class="period-bar" id="period-bar">
+        <div class="period-heading"><div class="period-label"><span data-icon="calendar"></span>Período</div><span class="date-zone">Horário de Brasília</span></div>
+        <div class="quick-periods quick-periods-first" aria-label="Períodos rápidos"><button class="period-today active" data-period="today" aria-pressed="true"><span data-icon="sun"></span>Dia atual</button><button data-period="month" aria-pressed="false">Mês atual</button><button data-period="7" aria-pressed="false">7 dias</button><button data-period="30" aria-pressed="false">30 dias</button><button data-period="year" aria-pressed="false">Este ano</button><button data-period="all" data-history-period aria-pressed="false" hidden>Todo histórico</button></div>
+        <div class="period-custom"><span class="filter-field-label">Personalizar</span><label><span class="sr-only">Data inicial</span><input id="date-from" type="date" required></label><span class="date-separator">até</span><label><span class="sr-only">Data final</span><input id="date-to" type="date" required></label><button class="button secondary compact" id="apply-period">Aplicar</button></div>
+      </div>
+      <div class="sync-line"><span><span class="status-dot"></span><span id="last-sync">Carregando dados locais…</span></span><span class="badge neutral">Em conferência</span></div>
+      <div id="message" role="status" aria-live="polite"></div>
+      <div id="content" aria-busy="true"><div class="loading-state"><span class="spinner"></span>Organizando sua operação…</div></div>
+      <footer class="page-footer"><span>SynthAmazon · Gestão Amazon Brasil</span><span>Dados importados · histórico em ampliação.</span></footer>
+    </main>
+  </div>
+  <dialog id="fba-stock-dialog" aria-labelledby="fba-stock-title"><div class="dialog-heading"><div><span class="eyebrow">ESTOQUE FBA</span><h2 id="fba-stock-title">Produtos e quantidades</h2></div><button class="icon-button" id="close-fba-stock" aria-label="Fechar estoque FBA"><span data-icon="close"></span></button></div><div id="fba-stock-detail" class="case-detail-body"></div></dialog>
+  <dialog id="composition-dialog" aria-labelledby="composition-title"><div class="dialog-heading"><div><span class="eyebrow">COMPOSIÇÃO FINANCEIRA</span><h2 id="composition-title">Lançamentos</h2></div><button class="icon-button" id="close-composition" aria-label="Fechar composição financeira"><span data-icon="close"></span></button></div><div id="composition-detail" class="case-detail-body" aria-live="polite"></div></dialog>
+  <dialog id="order-dialog" aria-labelledby="detail-title"><div class="dialog-heading"><div><span class="eyebrow">DETALHES DO PEDIDO</span><h2 id="detail-title">Pedido</h2></div><button class="icon-button" id="close-dialog" aria-label="Fechar detalhes"><span data-icon="close"></span></button></div><div id="order-detail"></div></dialog>
+  <dialog id="financial-case-dialog" aria-labelledby="financial-case-title"><div class="dialog-heading"><div><span class="eyebrow" id="financial-case-kind">ACOMPANHAMENTO LOCAL</span><h2 id="financial-case-title">Detalhes financeiros</h2></div><button class="icon-button" id="close-financial-case" aria-label="Fechar detalhes financeiros"><span data-icon="close"></span></button></div><div id="financial-case-detail" class="case-detail-body"></div></dialog>
+  <dialog id="bulk-review-dialog" aria-labelledby="bulk-review-title"><div class="dialog-heading"><h2 id="bulk-review-title">Gerenciar selecionados</h2><button class="icon-button" id="close-bulk-review" aria-label="Fechar gestão em massa"><span data-icon="close"></span></button></div><div id="bulk-review-body" class="case-detail-body"></div></dialog>
+  <dialog id="customer-return-dialog" aria-labelledby="customer-return-title"><div class="dialog-heading"><div><span class="eyebrow">DEVOLUÇÃO</span><h2 id="customer-return-title">Detalhes da devolução</h2></div><button class="icon-button" id="close-customer-return" aria-label="Fechar detalhes da devolução"><span data-icon="close"></span></button></div><div id="customer-return-detail" class="case-detail-body"></div></dialog>
+  <dialog id="safe-t-dialog" aria-labelledby="safe-t-title"><div class="dialog-heading"><div><span class="eyebrow">CONFERÊNCIA PARA SAFE-T</span><h2 id="safe-t-title">Detalhes do pedido</h2></div><button class="icon-button" id="close-safe-t" aria-label="Fechar conferência SAFE-T"><span data-icon="close"></span></button></div><div id="safe-t-detail" class="case-detail-body"></div></dialog>
+  <dialog id="local-review-dialog" aria-labelledby="local-review-title"><div class="dialog-heading"><div><span class="eyebrow">ACOMPANHAMENTO INTERNO</span><h2 id="local-review-title">Gerenciar acompanhamento</h2></div><button class="icon-button" id="close-local-review" aria-label="Fechar acompanhamento"><span data-icon="close"></span></button></div><div id="local-review-detail" class="case-detail-body"></div></dialog>
+  <div id="copy-feedback" class="copy-feedback" aria-hidden="true" hidden></div>
+  <span id="copy-announcement" class="sr-only" role="status" aria-live="polite"></span>
+</body>
+</html>

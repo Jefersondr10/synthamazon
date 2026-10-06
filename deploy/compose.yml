@@ -1,0 +1,81 @@
+name: synthamazon
+services:
+  app:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile
+    image: synthamazon:production
+    restart: unless-stopped
+    init: true
+    environment:
+      SYNTHAMAZON_ORIGIN: https://synthamazon.nucleodeoperacao.com.br
+      SYNTHAMAZON_OWNER_EMAIL: jefersondr10@gmail.com
+      NODE_OPTIONS: --max-old-space-size=4096
+    volumes:
+      - ../data:/app/data
+      - ../secrets/proxy-password:/run/secrets/proxy-password:ro
+    networks:
+      private:
+        aliases: [synthamazon-backend]
+    read_only: true
+    tmpfs: [/tmp:size=32m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 5g
+    cpus: 1.5
+    pids_limit: 96
+    stop_grace_period: 20s
+    logging: &logging
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  login:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
+    restart: unless-stopped
+    user: '1000:1000'
+    command: ['--config=/run/secrets/oauth2.cfg', '--trusted-proxy-ip=172.16.1.0/24']
+    volumes:
+      - ../secrets/oauth2.cfg:/run/secrets/oauth2.cfg:ro
+      - ../secrets/google-client-secret:/run/secrets/google-client-secret:ro
+      - ../secrets/cookie-secret:/run/secrets/cookie-secret:ro
+      - ./allowed-emails.txt:/etc/synthamazon/allowed-emails.txt:ro
+    networks:
+      private:
+      edge:
+        aliases: [synthamazon-login]
+    read_only: true
+    tmpfs: [/tmp:size=16m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 192m
+    cpus: 0.5
+    pids_limit: 64
+    logging: *logging
+    depends_on: [app]
+  collector:
+    image: synthamazon:production
+    profiles: [collect]
+    restart: unless-stopped
+    init: true
+    command: ['node', 'src/production-worker.mjs']
+    environment:
+      SYNTHAMAZON_SECRETS_DIR: /run/amazon
+      NODE_OPTIONS: --max-old-space-size=4096
+    volumes:
+      - ../data:/app/data
+      - ../secrets/amazon:/run/amazon:ro
+    networks: [collector]
+    read_only: true
+    tmpfs: [/tmp:size=64m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 5g
+    cpus: 1.5
+    pids_limit: 128
+    stop_grace_period: 60s
+    logging: *logging
+networks:
+  private:
+    internal: true
+  edge:
+    external: true
+  collector:

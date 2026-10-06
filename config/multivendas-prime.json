@@ -1,0 +1,14 @@
+{
+  "storeId": "multivendas-prime",
+  "displayName": "MultiVendas Prime",
+  "marketplaceId": "A2Q3Y263D00KWC",
+  "region": "NA",
+  "currency": "BRL",
+  "timeZone": "America/Sao_Paulo",
+  "historyStart": "2026-01-01T00:00:00-03:00",
+  "plannedSyncMinutes": 15,
+  "productionAppId": "amzn1.sp.solution.225a26b2-0e5a-4dbe-aa8f-8d168ec60fd9",
+  "connectionStatus": "connected-pilot-validation-pending",
+  "sources": ["orders", "transactions", "fba-inventory"],
+  "credentialEnvPrefix": "MULTIVENDAS_SPAPI"
+}

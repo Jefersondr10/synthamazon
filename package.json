@@ -1,0 +1,17 @@
+{
+  "name": "synthamazon-pilot",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "SynthAmazon — gestão de pedidos, reembolsos, estoque FBA, vendas e custos da Amazon Brasil",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node src/web/start.mjs",
+    "monitor": "node src/monitor-start.mjs",
+    "test": "node --test",
+    "pilot:check": "node src/cli.mjs check",
+    "pilot:setup": "node src/cli.mjs setup",
+    "pilot:collect": "node src/cli.mjs collect",
+    "pilot:history": "node src/history-import-start.mjs"
+  }
+}

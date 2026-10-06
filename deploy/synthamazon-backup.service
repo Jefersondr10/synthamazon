@@ -1,0 +1,14 @@
+[Unit]
+Description=SynthAmazon consistent database backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /docker/synthamazon/deploy/backup.py
+UMask=0077
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=1G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/docker/synthamazon/data /docker/synthamazon/backups

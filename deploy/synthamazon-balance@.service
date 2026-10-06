@@ -1,0 +1,21 @@
+[Unit]
+Description=Refresh Amazon account balance for %i independently of the full collector
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec synthamazon-collector-1 node src/production-balance.mjs --store %i
+TimeoutStartSec=300
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateNetwork=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+UMask=0077
+MemoryMax=128M
+CPUQuota=20%

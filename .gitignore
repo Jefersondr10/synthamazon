@@ -1,0 +1,36 @@
+node_modules/
+.env
+.env.*
+!.env.example
+data/
+secrets/
+deploy/*.private.*
+*.log
+coverage/
+
+# Private operation state, exports, credentials and backups.
+backups/
+work/
+credentials/
+config/erp-costs.json
+deploy/oauth2.cfg
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.dpapi
+*.pem
+*.key
+*.p12
+*.pfx
+*.private.*
+__pycache__/
+*.py[cod]
+test-*-result*.txt
+.DS_Store
+Thumbs.db
+
+# Historical internal validation reports stay local. Only the reviewed
+# deployment guide is part of this initial code repository.
+docs/*
+!docs/producao.md

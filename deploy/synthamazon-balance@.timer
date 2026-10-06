@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh Amazon account balance for %i every fifteen minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=15min
+RandomizedDelaySec=15s
+AccuracySec=1s
+Unit=synthamazon-balance@%i.service
+
+[Install]
+WantedBy=timers.target

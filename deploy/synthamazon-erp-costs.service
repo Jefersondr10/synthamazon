@@ -1,0 +1,12 @@
+[Unit]
+Description=Read ERP product costs for SynthAmazon
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /docker/synthamazon/deploy/export-erp-costs.py
+ExecStart=/usr/bin/docker exec synthamazon-app-1 node src/sync-product-costs.mjs
+TimeoutStartSec=300
+Nice=10
+UMask=0077

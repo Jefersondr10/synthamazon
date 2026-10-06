@@ -1,0 +1,8 @@
+**
+!package.json
+!src/**
+!public/**
+!config/pilot.json
+!config/hd-comercio.json
+!config/multivendas-prime.json
+!deploy/Dockerfile

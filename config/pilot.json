@@ -1,0 +1,14 @@
+{
+  "storeId": "origem-comercio",
+  "displayName": "ORIGEM COMERCIO",
+  "marketplaceId": "A2Q3Y263D00KWC",
+  "region": "NA",
+  "currency": "BRL",
+  "timeZone": "America/Sao_Paulo",
+  "historyStart": "2026-01-01T00:00:00-03:00",
+  "plannedSyncMinutes": 15,
+  "productionAppId": "amzn1.sp.solution.572eb01c-493b-4e0f-af1f-d6f417db9ae3",
+  "connectionStatus": "connected-pilot-validation-pending",
+  "sources": ["orders", "transactions", "fba-inventory"],
+  "credentialEnvPrefix": "ORIGEM_SPAPI"
+}
