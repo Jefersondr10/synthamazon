@@ -337,9 +337,10 @@ function returnedSnapshot(db,storeId) {
   }
   rows.sort((a,b)=>a.detectedAt.localeCompare(b.detectedAt)||a.storeId.localeCompare(b.storeId)||a.orderId.localeCompare(b.orderId));
   if(!db.isTransaction && sourceRevision(db)===revision){
-    for(const [key,value] of scopes)if(value.revision!==revision || value.expiresAt<=time)scopes.delete(key);
+    const completedAt=Date.now();
+    for(const [key,value] of scopes)if(value.revision!==revision || value.expiresAt<=completedAt)scopes.delete(key);
     if(scopes.size>=4)scopes.delete(scopes.keys().next().value);
-    scopes.set(storeId,{revision,expiresAt:time+60_000,rows});returnSnapshots.set(db,scopes);
+    scopes.set(storeId,{revision,expiresAt:completedAt+60_000,rows});returnSnapshots.set(db,scopes);
   }
   return rows;
 }

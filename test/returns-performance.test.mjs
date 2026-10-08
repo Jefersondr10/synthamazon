@@ -10,13 +10,13 @@ import { ensureReturnedManagementSchema, saveReturnedManagement } from '../src/d
 const at = day => `2026-09-${String(day).padStart(2, '0')}T12:00:00.000Z`;
 const pkg = detailedStatus => ({ packageReferenceId: 'parcel', trackingNumber: 'TRACK', status: 'DELIVERED', detailedStatus });
 
-function fixture(t, { file = false } = {}) {
+function fixture(t, { file = false, onPrepare = () => {} } = {}) {
   const directory = file ? mkdtempSync(path.join(os.tmpdir(), 'returns-performance-')) : null;
   const filename = directory ? path.join(directory, 'test.sqlite') : ':memory:';
   const raw = new DatabaseSync(filename);
   const connections = [raw], queries = [];
   const db = new Proxy(raw, { get(target, key) {
-    if (key === 'prepare') return sql => { queries.push(sql); return target.prepare(sql); };
+    if (key === 'prepare') return sql => { queries.push(sql); onPrepare(sql); return target.prepare(sql); };
     const value = Reflect.get(target, key, target);
     return typeof value === 'function' ? value.bind(target) : value;
   } });
@@ -76,6 +76,31 @@ test('pagination and filters reuse imported evidence while history reads scale w
   assert.equal(reads().transactions, 0, 'changing a page or filter must not reread every financial transaction');
   assert.equal(reads().individualManagement, 0);
   assert.equal(reads().batchManagement, 2);
+});
+
+test('a slow initial snapshot retains a full cache lifetime after construction', t => {
+  let clock = 0, advanceDuringBuild = false;
+  const { order, view, reads, reset } = fixture(t, { onPrepare(sql) {
+    if (advanceDuringBuild && /FROM observations WHERE source='orders'/.test(sql)) {
+      clock += 90_000;
+      advanceDuringBuild = false;
+    }
+  } });
+  order('order-a', 3, [pkg('RETURNED_TO_SELLER')]);
+  order('order-b', 3, [pkg('RETURNED_TO_SELLER')]);
+  t.mock.method(Date, 'now', () => clock);
+  advanceDuringBuild = true;
+  assert.equal(view({ limit: 1 }).items[0].orderId, 'order-a');
+  assert.equal(clock, 90_000, 'the initial build took longer than the cache lifetime');
+  reset();
+  clock += 59_999;
+  assert.equal(view({ limit: 1, offset: 1 }).items[0].orderId, 'order-b');
+  assert.equal(reads().histories, 0, 'the second page must reuse the completed slow snapshot');
+  assert.equal(reads().transactions, 0);
+  clock += 2;
+  assert.equal(view().total, 2);
+  assert.equal(reads().histories, 2, 'normal expiry still applies sixty seconds after completion');
+  assert.equal(reads().transactions, 1);
 });
 
 test('same-connection tracking, refunds, eligibility and workflow writes are visible immediately', t => {
