@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { projectLocalReviews } from './review-projection.mjs';
 import { orderFinancialEligibility, transactionFinancialEligibility } from './financial-eligibility.mjs';
 import { reimbursementIndex, reimbursement } from './financial-cases.mjs';
-import { returnedManagement } from './returned-management.mjs';
+import { returnedManagementIndex, returnedManagement } from './returned-management.mjs';
 
 const RETURNED = 'RETURNED_TO_SELLER';
 const SAFE_STORE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -106,10 +106,9 @@ export function mergeTrackingPackages(existing, incoming) {
   return merged;
 }
 
+const returnDayFormat = new Intl.DateTimeFormat('en-CA', {timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'});
 function localCalendarDay(value) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date(value));
+  const parts = returnDayFormat.formatToParts(new Date(value));
   const part = type => parts.find(item => item.type === type).value;
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
@@ -275,6 +274,76 @@ export function hasReturnedOrder(db, storeId, orderId) {
     && trackingHistoryForOrder(db, record, order).states.some(item => item.episode);
 }
 
+// Cache only imported evidence. Reviews, filters, workflow and date alerts stay fresh.
+// Every committed write (including other connections/the collector) invalidates the snapshot.
+const returnSnapshots = new WeakMap();
+const sourceRevision = db => `${db.prepare('PRAGMA data_version').get().data_version}:${db.prepare('SELECT total_changes() AS n').get().n}`;
+function returnedSnapshot(db,storeId) {
+  const revision=sourceRevision(db), time=Date.now();
+  const scopes=returnSnapshots.get(db) || new Map();
+  const cached=scopes.get(storeId);
+  if(!db.isTransaction && cached?.revision===revision && cached.expiresAt>time)return cached.rows;
+  const candidateIds = new Set();
+  // A historical return remains relevant even after a package changes status.
+  // Text matching is only a candidate prefilter; the full package history below proves it.
+  for(const row of db.prepare(`SELECT store_id,source_id FROM observations WHERE source='orders'
+    AND (? IS NULL OR store_id IN (SELECT value FROM json_each(?))) AND instr(payload_json,?)>0`).iterate(...storeArgs(storeId),RETURNED))candidateIds.add(JSON.stringify([row.store_id,row.source_id]));
+  for(const row of db.prepare(`SELECT store_id,order_id FROM tracking_observations
+    WHERE (? IS NULL OR store_id IN (SELECT value FROM json_each(?))) AND instr(packages_json,?)>0`).iterate(...storeArgs(storeId),RETURNED))candidateIds.add(JSON.stringify([row.store_id,row.order_id]));
+  const orderRecords = db.prepare(`SELECT entities.store_id,entities.source_id,entities.observed_at,entities.payload_json,
+    stores.name AS store_name FROM entities JOIN stores ON stores.store_id=entities.store_id
+    WHERE entities.source='orders' AND (? IS NULL OR entities.store_id IN (SELECT value FROM json_each(?)))`).iterate(...storeArgs(storeId));
+  const orders = [], candidates = [];
+  for (const record of orderRecords) {
+    const order = JSON.parse(record.payload_json);
+    orders.push({storeId:record.store_id,orderId:order.orderId,status:order.status});
+    if (order.fulfillmentMode === 'DBA' && (record.payload_json.includes(RETURNED) || candidateIds.has(JSON.stringify([record.store_id,record.source_id])))) candidates.push({record,order});
+  }
+  const transactions = [], byOrder = new Map();
+  for (const row of db.prepare(`SELECT store_id,payload_json FROM entities WHERE source='transactions'
+    AND (? IS NULL OR store_id IN (SELECT value FROM json_each(?)))`).iterate(...storeArgs(storeId))) {
+    const transaction = {...JSON.parse(row.payload_json),storeId:row.store_id}; transactions.push(transaction);
+    for (const id of new Set(transaction.orderIds || [])) {
+      const key=JSON.stringify([row.store_id,id]);if(!byOrder.has(key))byOrder.set(key,[]);byOrder.get(key).push(transaction);
+    }
+  }
+  const transactionEligibility = transactionFinancialEligibility(transactions, orders);
+  const credits = reimbursementIndex(transactions.filter(item => !transactionEligibility.excludedKeys.has(JSON.stringify([item.storeId,item.transactionId]))));
+  const rows = [];
+  for (const {record,order} of candidates) {
+    const history = trackingHistoryForOrder(db, record, order);
+    const returned = history.states.filter(item => item.episode).sort((a, b) => a.episode.detectedAt.localeCompare(b.episode.detectedAt) || a.key.localeCompare(b.key));
+    if (!returned.length) continue;
+    const first = returned[0];
+    const episode = first.episode;
+    const currentReturnedPackageCount = returned.filter(item => item.detailedStatus === RETURNED).length;
+    const linkedTransactions = byOrder.get(JSON.stringify([record.store_id,order.orderId])) || [];
+    const excludedRefund = linkedTransactions.some(item => item.type === 'Refund'
+      && transactionEligibility.excludedKeys.has(JSON.stringify([item.storeId, item.transactionId])));
+    const financialEligibility = excludedRefund ? { included: false, reason: 'payment-pending' } : orderFinancialEligibility(order);
+    const refund = { ...refundEvidence(linkedTransactions), financialEligibility };
+    refund.transactions = refund.transactions.map(item => ({ ...item, financialEligibility }));
+    const searchable = [order.orderId, record.store_name, ...(order.items ?? []).flatMap(item => [item.sku, item.asin, item.title]),
+      ...history.states.flatMap(item => [item.packageReferenceId, item.trackingNumber])].filter(Boolean).join(' ').toLocaleLowerCase('pt-BR');
+    rows.push({ storeId: record.store_id, storeName: record.store_name, orderId: order.orderId,
+      orderStatus: order.status ?? null, fulfillmentMode: 'DBA', createdAt: order.createdAt ?? null, financialEligibility,
+      trackingNumber: first.trackingNumber, status: first.status, detailedStatus: first.detailedStatus,
+      occurrenceId: hash(`${record.store_id}\u0000${order.orderId}\u0000${first.key}`), ...episode,
+      returnedPackageCount: returned.length, packageCount: history.packageCount,
+      partialReturn: returned.length < history.packageCount, currentReturnedPackageCount,
+      returnStatusChanged: currentReturnedPackageCount < returned.length,
+      statusObservedAt: first.statusObservedAt, refund, searchable,
+      reimbursement: reimbursement(financialEligibility.included ? credits.get(JSON.stringify([record.store_id,order.orderId])) : []) });
+  }
+  rows.sort((a,b)=>a.detectedAt.localeCompare(b.detectedAt)||a.storeId.localeCompare(b.storeId)||a.orderId.localeCompare(b.orderId));
+  if(!db.isTransaction && sourceRevision(db)===revision){
+    for(const [key,value] of scopes)if(value.revision!==revision || value.expiresAt<=time)scopes.delete(key);
+    if(scopes.size>=4)scopes.delete(scopes.keys().next().value);
+    scopes.set(storeId,{revision,expiresAt:time+60_000,rows});returnSnapshots.set(db,scopes);
+  }
+  return rows;
+}
+
 /** One operational row per DBA order with evidence of a returned package. */
 export function returnsView({ db, filters = {}, now = new Date(), policy = { days: 5, kind: 'calendar' } }) {
   ensureReturnSchema(db);
@@ -293,49 +362,13 @@ export function returnsView({ db, filters = {}, now = new Date(), policy = { day
   const to = filterBoundary(filters.to, true);
   if (from && to && from >= to) throw new TypeError('Período inválido.');
   const query = String(filters.query ?? '').trim().toLocaleLowerCase('pt-BR');
-  const orders = db.prepare(`SELECT entities.store_id,entities.source_id,entities.observed_at,entities.payload_json,
-    stores.name AS store_name FROM entities JOIN stores ON stores.store_id=entities.store_id
-    WHERE entities.source='orders' AND (? IS NULL OR entities.store_id IN (SELECT value FROM json_each(?)))`).all(...storeArgs(storeId));
-  const transactions = db.prepare(`SELECT store_id,payload_json FROM entities WHERE source='transactions'
-    AND (? IS NULL OR store_id IN (SELECT value FROM json_each(?)))`).all(...storeArgs(storeId)).map(row => ({ ...JSON.parse(row.payload_json), storeId: row.store_id }));
-  const transactionEligibility = transactionFinancialEligibility(transactions,
-    orders.map(row => ({ ...JSON.parse(row.payload_json), storeId: row.store_id })));
-  let rows = [];
-  for (const record of orders) {
-    const order = JSON.parse(record.payload_json);
-    if (order.fulfillmentMode !== 'DBA') continue;
-    const history = trackingHistoryForOrder(db, record, order);
-    const returned = history.states.filter(item => item.episode).sort((a, b) => a.episode.detectedAt.localeCompare(b.episode.detectedAt) || a.key.localeCompare(b.key));
-    if (!returned.length) continue;
-    const first = returned[0];
-    const episode = first.episode;
-    const currentReturnedPackageCount = returned.filter(item => item.detailedStatus === RETURNED).length;
-    const linkedTransactions = transactions.filter(item => item.storeId === record.store_id && item.orderIds?.includes(order.orderId));
-    const excludedRefund = linkedTransactions.some(item => item.type === 'Refund'
-      && transactionEligibility.excludedKeys.has(JSON.stringify([item.storeId, item.transactionId])));
-    const financialEligibility = excludedRefund ? { included: false, reason: 'payment-pending' } : orderFinancialEligibility(order);
-    const refund = { ...refundEvidence(linkedTransactions), financialEligibility };
-    refund.transactions = refund.transactions.map(item => ({ ...item, financialEligibility }));
-    const searchable = [order.orderId, record.store_name, ...(order.items ?? []).flatMap(item => [item.sku, item.asin, item.title]),
-      ...history.states.flatMap(item => [item.packageReferenceId, item.trackingNumber])].filter(Boolean).join(' ').toLocaleLowerCase('pt-BR');
-    if ((query && !searchable.includes(query)) || (from && episode.detectedAt < from) || (to && episode.detectedAt >= to)) continue;
-    if (status !== 'all' && !financialEligibility.included
-      || (status === 'refunded' && refund.status !== 'recorded') || (status === 'without_refund' && refund.status !== 'not-found')) continue;
-    rows.push({ storeId: record.store_id, storeName: record.store_name, orderId: order.orderId,
-      orderStatus: order.status ?? null, fulfillmentMode: 'DBA', createdAt: order.createdAt ?? null, financialEligibility,
-      trackingNumber: first.trackingNumber, status: first.status, detailedStatus: first.detailedStatus,
-      occurrenceId: hash(`${record.store_id}\u0000${order.orderId}\u0000${first.key}`), ...episode,
-      returnedPackageCount: returned.length, packageCount: history.packageCount,
-      partialReturn: returned.length < history.packageCount, currentReturnedPackageCount,
-      returnStatusChanged: currentReturnedPackageCount < returned.length,
-      statusObservedAt: first.statusObservedAt, refund, alert: alertFor(episode, refund, appliedPolicy, generatedAt) });
-  }
-  rows.sort((a, b) => a.detectedAt.localeCompare(b.detectedAt) || a.storeId.localeCompare(b.storeId) || a.orderId.localeCompare(b.orderId));
+  let rows = returnedSnapshot(db,storeId).filter(row => (!query || row.searchable.includes(query))
+    && (!from || row.detectedAt>=from) && (!to || row.detectedAt<to)
+    && (status==='all' || row.financialEligibility.included && (status==='refunded' ? row.refund.status==='recorded' : row.refund.status==='not-found')))
+    .map(({searchable,...row})=>({...row,alert:alertFor(row,row.refund,appliedPolicy,generatedAt)}));
   const projection = projectLocalReviews(db, 'returns', rows, row => row.orderId, filters.reviewStatus);
-  const credits = reimbursementIndex(transactions.filter(item => !transactionEligibility.excludedKeys.has(JSON.stringify([item.storeId, item.transactionId]))));
-  rows = projection.items.map(row => ({ ...row,
-    review: returnedManagement(db, row.storeId, row.orderId, row.review),
-    reimbursement: reimbursement(row.financialEligibility.included ? credits.get(JSON.stringify([row.storeId, row.orderId])) : []) }));
+  const management = returnedManagementIndex(db,storeId);
+  rows = projection.items.map(row=>({...row,review:returnedManagement(db,row.storeId,row.orderId,row.review,management.get(JSON.stringify([row.storeId,row.orderId])) ?? null)}));
   const workflowCounts = { all: rows.length, active: rows.filter(row => row.review.workflowState === 'active').length,
     finalized: rows.filter(row => row.review.workflowState === 'finalized').length };
   rows = rows.filter(row => workflow === 'all' || row.review.workflowState === workflow);

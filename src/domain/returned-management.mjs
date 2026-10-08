@@ -1,3 +1,4 @@
+import { storeArgs } from './store-filter.mjs';
 import { ensureLocalReviewSchema, getLocalReview } from './local-reviews.mjs';
 import { validateReviewStatus, refundManagementStatuses, safeTGrantedEvidence } from './review-statuses.mjs';
 
@@ -19,9 +20,15 @@ export function ensureReturnedManagementSchema(db) {
   initialized.add(db);
 }
 
-export function returnedManagement(db, storeId, orderId, review) {
+export function returnedManagementIndex(db, storeId) {
   ensureReturnedManagementSchema(db);
-  const saved = db.prepare('SELECT workflow,case_id AS caseId,finalized_at AS finalizedAt FROM returned_management WHERE store_id=? AND order_id=?').get(storeId, orderId);
+  return new Map(db.prepare(`SELECT store_id,order_id,workflow,case_id AS caseId,finalized_at AS finalizedAt FROM returned_management
+    WHERE (? IS NULL OR store_id IN (SELECT value FROM json_each(?)))`).all(...storeArgs(storeId)).map(row=>[JSON.stringify([row.store_id,row.order_id]),row]));
+}
+
+export function returnedManagement(db, storeId, orderId, review, snapshot = undefined) {
+  ensureReturnedManagementSchema(db);
+  const saved = snapshot === undefined ? db.prepare('SELECT workflow,case_id AS caseId,finalized_at AS finalizedAt FROM returned_management WHERE store_id=? AND order_id=?').get(storeId, orderId) : snapshot;
   // Preserve the intent of legacy reviews explicitly marked as resolved.
   return { ...review, workflowState: saved?.workflow ?? (review.closesCase ? 'finalized' : 'active'),
     caseId: saved?.caseId ?? '', finalizedAt: saved ? saved.finalizedAt : review.closesCase ? review.updatedAt : null };

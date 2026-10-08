@@ -631,8 +631,8 @@ export class Repository {
     return { ...result, ...(kind === 'refunds' ? { items: linkRefundReturns(this.db, result.items) } : {}), coverage: this.#coverage(filters) };
   }
 
-  safeTCases(filters = {}) {
-    const scope = { storeId: filters.storeId };
+  #safeTEvidence(storeId, now = new Date()) {
+    const scope = { storeId };
     const orders = this.#records('orders', scope), transactions = this.#records('transactions', scope);
     const allPages = read => {
       const items = []; let offset = 0, page;
@@ -643,38 +643,35 @@ export class Repository {
     // every source has been joined by store and order, never by a global order ID.
     const refundCases = allPages(offset => buildFinancialCases({ db: this.db, kind: 'refunds', transactions, orders,
       filters: { ...scope, limit: 500, offset } }));
-    const returnedToSeller = allPages(offset => returnsView({ db: this.db, filters: { ...scope, limit: 500, offset } }));
-    const storeId = canonicalStoreSelection(filters.storeId);
+    const returnedToSeller = allPages(offset => returnsView({ db: this.db, filters: { ...scope, limit: 500, offset }, now }));
+    const selection = canonicalStoreSelection(storeId);
     const customerReturns = this.db.prepare(`SELECT store_id,return_id,observed_at,payload_json FROM customer_return_records
-      WHERE (? IS NULL OR store_id IN (SELECT value FROM json_each(?)))`).all(...storeArgs(storeId)).map(row => ({ ...JSON.parse(row.payload_json),
+      WHERE (? IS NULL OR store_id IN (SELECT value FROM json_each(?)))`).all(...storeArgs(selection)).map(row => ({ ...JSON.parse(row.payload_json),
         storeId: row.store_id, returnId: row.return_id, observedAt: row.observed_at }));
-    return { ...buildSafeTCases({ orders, refundCases, customerReturns, returnedToSeller, filters }), coverage: this.#coverage(scope) };
+    return { orders, transactions, refundCases, customerReturns, returnedToSeller };
+  }
+
+  safeTCases(filters = {}) {
+    return { ...buildSafeTCases({ ...this.#safeTEvidence(filters.storeId), filters }), coverage: this.#coverage({ storeId: filters.storeId }) };
   }
 
   syncRefundManagement({ storeId = 'all', now = new Date() } = {}) {
     parseStoreSelection(storeId);
     const storeIds = parseStoreSelection(storeId) || this.listStores().map(item => item.storeId);
-    const rows = [], cases = [];
-    const transactions = this.#records('transactions', { storeId }), orders = this.#records('orders', { storeId });
+    const rows = [];
+    // Reuse the same complete source evidence throughout this synchronous run.
+    // Rebuilding it for every SAFE-T page multiplies full-history work by the
+    // number of pages and needlessly repeats it after management writes.
+    const evidence = this.#safeTEvidence(storeId, now);
     let offset = 0, page;
     do {
-      page = this.safeTCases({ storeId, limit: 500, offset });
+      page = buildSafeTCases({ ...evidence, filters: { storeId, limit: 500, offset } });
       rows.push(...page.items.filter(item => item.refund?.source === 'financial-transactions'));
       offset += page.limit;
     } while (page.hasMore);
-    offset = 0;
-    do {
-      page = buildFinancialCases({ db: this.db, kind: 'refunds', transactions, orders, filters: { storeId, limit: 500, offset } });
-      cases.push(...page.items); offset += page.limit;
-    } while (page.hasMore);
-    const result = syncRefundManagement({ db: this.db, rows, storeIds, now, creditIndex: reimbursementIndex(transactions),
-      financialCaseIndex: new Map(cases.map(item => [JSON.stringify([item.storeId,item.caseId]),item])) });
-    offset = 0;
-    do {
-      page = returnsView({ db: this.db, filters: { storeId, limit: 500, offset }, now });
-      syncReturnedSafeTGranted(this.db, page.items, now);
-      offset += page.limit;
-    } while (page.hasMore);
+    const result = syncRefundManagement({ db: this.db, rows, storeIds, now, creditIndex: reimbursementIndex(evidence.transactions),
+      financialCaseIndex: new Map(evidence.refundCases.map(item => [JSON.stringify([item.storeId,item.caseId]),item])) });
+    syncReturnedSafeTGranted(this.db, evidence.returnedToSeller, now);
     return result;
   }
 

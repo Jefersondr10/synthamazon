@@ -41,6 +41,8 @@ O upstream do login é `http://synthamazon-backend:3000/`. O aplicativo valida a
 
 `deploy/backup.py` e os arquivos `synthamazon-backup.service` e `.timer` fazem parte da rotina de cópias consistentes do SQLite. Os dados e as credenciais precisam ser preservados separadamente do código. Uma cópia mantida apenas na mesma VPS não protege contra a perda completa do servidor.
 
+A rotina fixa uma transação de leitura WAL durante a cópia, permitindo novas gravações sem reiniciar cada lote. Há pausas entre lotes, prazo de 25 minutos, limite de crescimento do WAL e publicação atômica após `quick_check`. Essa verificação estrutural não substitui a auditoria completa dos índices com `integrity_check`, obrigatória antes de uma restauração. O serviço limita a CPU a 20% de um núcleo, usa prioridade baixa e interrompe execuções após 30 minutos. Falhas preservam as sete cópias completas anteriores. Ao atualizar a rotina, instale também a unidade do serviço e recarregue o systemd.
+
 Para restaurar o SQLite, pare todos os escritores, preserve uma cópia consistente do estado atual, valide `PRAGMA integrity_check` na cópia escolhida e só então substitua a base. Trate WAL/SHM com os escritores parados e confira permissões antes de reiniciar. Não restaure uma base antiga sobre anotações recentes sem reconciliação.
 
 ## Integração de custos

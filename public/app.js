@@ -22,7 +22,9 @@ let productPanelModule, productPanelState, productPanelData, productPanelCleanup
 let productLinksSettingsModule, productLinksSettingsCleanup;
 const productLinksListState = {query:'',mode:'ALL',linkStatus:'all',limit:50,offset:0,storeId:null};
 const salesAlertsState = {status:'new',mode:'all',type:'all',query:'',limit:24,offset:0,loading:false};
-let loadAllRecords, loadInventoryRecords, fetchReadWithRetry, inventoryQuantities;
+let loadAllRecords, loadRecordPage, loadInventoryRecords, fetchReadWithRetry, createReadScope, inventoryQuantities;
+let viewReadScope;
+const returnedPageSize = 100;
 let layout;
 function prepareTables(root) { layout?.prepareTables(root); applyCopiedOrderHighlight(root); }
 function refundFormSteps(form) { layout?.refundFormSteps(form); }
@@ -77,7 +79,8 @@ if (!['dark', 'light'].includes(savedTheme)) { try { savedTheme = localStorage.g
 applyTheme(savedTheme);
 $('#theme-toggle').addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true));
 function escape(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
-const number = value => value === null || value === undefined ? '—' : new Intl.NumberFormat('pt-BR').format(value);
+const numberFormat = new Intl.NumberFormat('pt-BR');
+const number = value => value === null || value === undefined ? '—' : numberFormat.format(value);
 const counted = (value, singular, plural) => `${number(value)} ${value === 1 ? singular : plural}`;
 function inventoryAsinLink(asin, fallback = 'ASIN não informado') {
   const value = typeof asin === 'string' ? asin.trim().toUpperCase() : '';
@@ -88,7 +91,7 @@ function money(cents, currency) {
   if (cents === null || cents === undefined || !/^-?\d+$/.test(String(cents))) return 'Não informado';
   const value = BigInt(cents), abs = value < 0n ? -value : value;
   const prefix = currency === 'BRL' ? 'R$' : currency || 'Moeda não informada';
-  return `${value < 0n ? '−' : ''}${prefix} ${new Intl.NumberFormat('pt-BR').format(abs / 100n)},${String(abs % 100n).padStart(2, '0')}`;
+  return `${value < 0n ? '−' : ''}${prefix} ${numberFormat.format(abs / 100n)},${String(abs % 100n).padStart(2, '0')}`;
 }
 function amount(cents, currency, extra = '') { return `<span class="amount ${String(cents).startsWith('-') ? 'negative' : ''} ${extra}">${escape(money(cents, currency))}</span>`; }
 const dateFormat = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -101,7 +104,8 @@ function date(value, withTime = false) {
   if (!value || Number.isNaN(Date.parse(value))) return 'Não informado';
   return (withTime ? timeFormat : dateFormat).format(new Date(value));
 }
-function localDay(value) { if (!value || Number.isNaN(Date.parse(value))) return ''; const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value)); return ['year', 'month', 'day'].map(type => p.find(x => x.type === type).value).join('-'); }
+const localDayFormat = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
+function localDay(value) { if (!value || Number.isNaN(Date.parse(value))) return ''; const p = localDayFormat.formatToParts(new Date(value)); return ['year', 'month', 'day'].map(type => p.find(x => x.type === type).value).join('-'); }
 function addDays(day, days) { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); }
 const state = { safeTStatus: 'all', safeTStatusLabels: {}, view: 'dashboard', storeId: '', from: '', to: '', query: '', mode: 'all', orderNet: 'all', orderStatus: 'all', orderStatusLabel: '', orderStatusLabels: {}, stock: 'all', returnStatus: 'all', customerRefund: 'all', caseStatus: 'all', caseStatusLabel: '', reviewStatus: 'all', reviewStatusLabel: '', caseType: 'all', caseTypeLabel: '', caseReimbursement: 'all', refundBulkMode: false, page: 0, pageSize: 20, version: 0, bootstrap: null, csrf: '', data: null, inventoryData: null };
 let refundManagementModule, refundManagementState, refundManagementCleanup, returnedManagementModule;
@@ -158,7 +162,7 @@ function rememberReviewSettings(value) {
   if (Array.isArray(value?.menus)) reviewSettings.menus = value.menus;
   return reviewSettings;
 }
-async function refreshReviewSettings() { return rememberReviewSettings(await api('/api/settings/statuses')); }
+async function refreshReviewSettings(read = api) { return rememberReviewSettings(await read('/api/settings/statuses')); }
 function reviewDefinition(code) { return reviewSettings.items.find(item => item.code === code); }
 function reviewChoices(menu, current) {
   const options = reviewSettings.items.filter(item => item.active === true && !item.automatic && !item.readOnly && item.menus?.includes(menu));
@@ -199,6 +203,7 @@ async function api(path, options = {}) {
     if (response.status === 404 && path === '/api/reviews/bulk') throw Object.assign(new Error('Um dos casos não está mais disponível.'), { code: 'BULK_NOT_FOUND' });
     throw new Error('Não foi possível carregar os dados. Tente recarregar esta página.');
   }
+  if (path === '/api/sales-alerts' && (options.method || 'GET').toUpperCase() !== 'GET') invalidateSalesAlertCount();
   return response.json();
 }
 function params(extra = {}) { const p = new URLSearchParams(); Object.entries({ storeId: state.storeId, from: state.from, to: state.to, ...extra }).forEach(([key, value]) => { if (value !== '' && value !== null && value !== undefined) p.set(key, value); }); return p; }
@@ -943,6 +948,7 @@ function returnPolicyMarkup(policy) {
 function returnsMarkup(data) {
   return returnedManagementModule.renderReturnedManagement(data, state, {
     number, money, date, badge, metric, icon, empty,
+    pagination: (total, count) => pagination(total, count, returnedPageSize),
     orderNumber: orderNumberMarkup, tracking: returnTrackingMarkup, detection: returnDetectionMarkup,
     refund: returnRefundMarkup, alert: returnAlertMarkup, reviewBadge,
     reviewFilter: localReviewFilterMarkup, monitor: returnMonitorMarkup, policy: returnPolicyMarkup,
@@ -1023,7 +1029,7 @@ async function openSafeTClaim(link) {
   else showMessage(message, copied ? '' : 'warning');
   $('#copy-announcement').textContent = message;
 }
-function pagination(total, count) { const pages = Math.max(1, Math.ceil(total / state.pageSize)); return `<div class="table-footer"><span>${count ? `${number(state.page * state.pageSize + 1)}–${number(state.page * state.pageSize + count)} de ${number(total)}` : '0 resultados'} · dados importados</span><div class="pagination"><button id="prev-page" aria-label="Página anterior" ${state.page === 0 ? 'disabled' : ''}>${icon('arrowLeft')}</button><span>${state.page + 1} / ${pages}</span><button id="next-page" aria-label="Próxima página" ${state.page + 1 >= pages ? 'disabled' : ''}>${icon('arrow')}</button></div></div>`; }
+function pagination(total, count, pageSize = state.pageSize) { const pages = Math.max(1, Math.ceil(total / pageSize)); return `<div class="table-footer"><span>${count ? `${number(state.page * pageSize + 1)}–${number(state.page * pageSize + count)} de ${number(total)}` : '0 resultados'} · dados importados</span><div class="pagination"><button id="prev-page" aria-label="Página anterior" ${state.page === 0 ? 'disabled' : ''}>${icon('arrowLeft')}</button><span>${state.page + 1} / ${pages}</span><button id="next-page" aria-label="Próxima página" ${state.page + 1 >= pages ? 'disabled' : ''}>${icon('arrow')}</button></div></div>`; }
 function inventorySummary(data) {
   if (data?.summary) return data.summary;
   const items = data?.items || [], whole = items.length === data?.total;
@@ -1438,12 +1444,38 @@ async function writeOrderClipboard(orderId, button) {
     if (!copied) throw new Error('COPY_FAILED');
   }
 }
+let alertCountStore = '', alertCountUpdatedAt = 0, alertCountVersion = 0, alertCountRequest;
 function updateSalesAlertCount(count) {
+  alertCountStore = state.storeId; alertCountUpdatedAt = Date.now(); alertCountVersion++;
   const badge=$('#sales-alert-count');badge.textContent=count>99?'99+':String(count);badge.hidden=!count;badge.setAttribute('aria-label',`${count} alertas novos`);
+}
+function invalidateSalesAlertCount() {
+  alertCountUpdatedAt = -Infinity; alertCountVersion++;
+  alertCountRequest?.scope.cancel(); alertCountRequest = null;
+}
+function updateSalesAlertCountFromView(data, filters) {
+  // Channel, type and search narrow the screen counters, but never the nav badge.
+  if (filters.mode === 'all' && filters.type === 'all' && !filters.query?.trim()) {
+    updateSalesAlertCount(data.counts.new);
+    return;
+  }
+  return refreshSalesAlertCount();
 }
 async function refreshSalesAlertCount() {
   const storeId=state.storeId;if(!storeId||!state.bootstrap)return;
-  try{const data=await api(`/api/sales-alerts?${new URLSearchParams({storeId,limit:'1'})}`);if(storeId===state.storeId)updateSalesAlertCount(data.counts.new);}catch{}
+  if (alertCountStore === storeId && Date.now() - alertCountUpdatedAt < 180000) return;
+  if (alertCountRequest?.storeId === storeId) return alertCountRequest.promise;
+  alertCountRequest?.scope.cancel();
+  const scope = createReadScope(api), version = alertCountVersion;
+  const request = { storeId, scope };
+  alertCountRequest = request;
+  request.promise = (async () => {
+    try {
+      const data=await scope.api(`/api/sales-alerts?${new URLSearchParams({storeId,limit:'1'})}`);
+      if(storeId===state.storeId && version === alertCountVersion)updateSalesAlertCount(data.counts.new);
+    } catch {} finally { if (alertCountRequest === request) alertCountRequest = null; }
+  })();
+  return request.promise;
 }
 setInterval(()=>{if(!document.hidden)refreshSalesAlertCount();},180000);
 document.addEventListener('click',async event=>{
@@ -1642,7 +1674,7 @@ async function changeListPage(direction) {
   const previousPage = state.page;
   state.page = Math.max(0, previousPage + direction);
   if (state.view === 'inventory') { renderInventory(); return; }
-  if (state.view !== 'orders') { loadView(); return; }
+  if (!['orders', 'returns'].includes(state.view)) { loadView(); return; }
   const buttons = ['prev-page', 'next-page'].map(id => ({ element: document.getElementById(id), disabled: document.getElementById(id)?.disabled }));
   buttons.forEach(({ element }) => { if (element) element.disabled = true; });
   const loading = document.createElement('span'); loading.className = 'page-loading'; loading.setAttribute('role', 'status'); loading.textContent = 'Atualizando pedidos…';
@@ -1673,6 +1705,9 @@ async function loadView(restoreSearch = false, { preserveContent = false, refund
   salesAlertsCleanup?.(); salesAlertsCleanup=null;
   productLinksSettingsCleanup?.(); productLinksSettingsCleanup=null;
   syncRefundSelectionScope();
+  viewReadScope?.cancel();
+  viewReadScope = createReadScope(api);
+  const readApi = viewReadScope.api;
   const version = ++state.version, view = state.view;
   const managementSearch = view === 'refund-management' && document.activeElement?.matches('[data-rm-search]');
   const alertSearch = view === 'sales-alerts' && document.activeElement?.matches('[data-alert-search]');
@@ -1689,72 +1724,73 @@ async function loadView(restoreSearch = false, { preserveContent = false, refund
       refundManagementModule ||= await loadScreenModule('/refund-management.js');
       if (version !== state.version) return;
       if (!refundManagementState) { refundManagementState = refundManagementModule.createRefundManagementState(); refundManagementState.query = state.query; if (state.query) refundManagementState.workflow = 'all'; }
-      let data = await loadAllRecords(api, '/api/refund-management', refundManagementModule.refundManagementParams(refundManagementState, state.storeId), () => version === state.version);
+      let data = await loadAllRecords(readApi, '/api/refund-management', refundManagementModule.refundManagementParams(refundManagementState, state.storeId), () => version === state.version);
       if (version !== state.version) return;
       if (refundFinalized && refundManagementState.payment === 'pending' && data.total === 0) {
         const nextParams = refundManagementModule.refundManagementParams(refundManagementState, state.storeId);
         nextParams.set('payment', 'all');
-        data = await loadAllRecords(api, '/api/refund-management', nextParams, () => version === state.version);
+        data = await loadAllRecords(readApi, '/api/refund-management', nextParams, () => version === state.version);
         if (version !== state.version) return;
         refundManagementState.payment = 'all';
       }
       state.data = data; html = refundManagementModule.renderRefundManagement(data, refundManagementState, refundManagementHelpers);
     } else if (view === 'dashboard') {
-      const [dashboard, inventory] = await Promise.all([api(`/api/dashboard?${params()}`), api(`/api/inventory?${params({ from: null, to: null, limit: 500 })}`)]);
+      const [dashboard, inventory] = await Promise.all([readApi(`/api/dashboard?${params()}`), readApi(`/api/inventory?${params({ from: null, to: null, limit: 1 })}`)]);
       if (version !== state.version) return;
       state.data = dashboard; html = dashboardMarkup(dashboard, inventory);
     } else if (view === 'sales-alerts') {
       salesAlertsModule ||= await loadScreenModule('/sales-alerts.js');
-      const data=await api(`/api/sales-alerts?${params({from:null,to:null,...salesAlertsState,loading:null})}`);
+      const data=await readApi(`/api/sales-alerts?${params({from:null,to:null,...salesAlertsState,loading:null})}`);
       if(version!==state.version)return;
       state.data=data;html=salesAlertsModule.renderSalesAlerts(data,salesAlertsState,{storeName,inventoryAsinLink});
-      refreshSalesAlertCount();
+      updateSalesAlertCountFromView(data, salesAlertsState);
     } else if (view === 'product-panel') {
       productPanelModule ||= await loadScreenModule('/product-panel.js');
       if(version!==state.version)return;
       productPanelState ||= productPanelModule.createProductPanelState();
       if(productPanelState.period!=='custom')Object.assign(productPanelState,productPanelModule.panelDates(productPanelState.period));
-      const data=await api(`/api/product-panel?${params({from:productPanelState.from,to:productPanelState.to,channels:productPanelState.channels.join(',')})}`);
+      const data=await readApi(`/api/product-panel?${params({from:productPanelState.from,to:productPanelState.to,channels:productPanelState.channels.join(',')})}`);
       if(version!==state.version)return;
       productPanelData=data;state.data=data;
       html=productPanelModule.renderProductPanel(data,productPanelState,productPanelHelpers);
     } else if (view === 'product-sales') {
       productSalesModule ||= await loadScreenModule('/product-sales.js');
       productSalesState ||= productSalesModule.createProductSalesState();
-      const data = await api(`/api/product-sales?${params({from:productSalesState.customFrom||null,to:productSalesState.customTo||null,channels:productSalesState.channels.join(',')})}`);
+      const data = await readApi(`/api/product-sales?${params({from:productSalesState.customFrom||null,to:productSalesState.customTo||null,channels:productSalesState.channels.join(',')})}`);
       if (version !== state.version) return;
       productSalesState.channels = data.channels; productSalesState.loading = false;
       productSalesData = data; html = productSalesModule.renderProductSales(data,productSalesState,{storeName,inventoryAsinLink});
     } else if (view === 'orders') {
-      const data = await api(`/api/orders?${params({ query: state.query, mode: state.mode, status: state.orderStatus, net: state.orderNet, limit: state.pageSize, offset: state.page * state.pageSize })}`);
+      const data = await readApi(`/api/orders?${params({ query: state.query, mode: state.mode, status: state.orderStatus, net: state.orderNet, limit: state.pageSize, offset: state.page * state.pageSize })}`);
       if (version !== state.version) return;
       state.data = data; html = ordersTable(data);
     } else if (view === 'returns') {
       returnedManagementModule ||= await loadScreenModule('/returned-management.js');
       if (version !== state.version) return;
-      const data = await loadAllRecords(api, '/api/returns', params({ from: null, to: null, query: state.query, status: state.returnStatus, workflow: state.returnWorkflow || 'active', card: state.returnCard || 'all', reviewStatus: state.reviewStatus }), () => version === state.version);
+      const data = await loadRecordPage(readApi, '/api/returns', params({ from: null, to: null, query: state.query, status: state.returnStatus, workflow: state.returnWorkflow || 'active', card: state.returnCard || 'all', reviewStatus: state.reviewStatus }), { page: state.page, pageSize: returnedPageSize, isCurrent: () => version === state.version });
       if (version !== state.version) return;
+      state.page = Math.floor(data.offset / returnedPageSize);
       state.data = data; html = returnsMarkup(data);
     } else if (view === 'customer-returns') {
-      const data = await api(`/api/customer-returns?${params({ from: null, to: null, query: state.query, mode: state.mode, refund: state.customerRefund, reviewStatus: state.reviewStatus, limit: state.pageSize, offset: state.page * state.pageSize })}`);
+      const data = await readApi(`/api/customer-returns?${params({ from: null, to: null, query: state.query, mode: state.mode, refund: state.customerRefund, reviewStatus: state.reviewStatus, limit: state.pageSize, offset: state.page * state.pageSize })}`);
       if (version !== state.version) return;
       state.data = data; html = customerReturnsMarkup(data);
     } else if (view === 'refunds' || view === 'charges') {
-      const data = await api(`/api/${view}?${params({ from: null, to: null, query: state.query, status: state.caseStatus, type: view === 'charges' ? state.caseType : undefined, reimbursement: view === 'refunds' ? state.caseReimbursement : undefined, limit: state.pageSize, offset: state.page * state.pageSize })}`);
+      const data = await readApi(`/api/${view}?${params({ from: null, to: null, query: state.query, status: state.caseStatus, type: view === 'charges' ? state.caseType : undefined, reimbursement: view === 'refunds' ? state.caseReimbursement : undefined, limit: state.pageSize, offset: state.page * state.pageSize })}`);
       if (version !== state.version) return;
       state.data = data; html = financialCasesMarkup(data, view);
     } else if (view === 'safe-t') {
-      const data = await api(`/api/safe-t?${params({ query: state.query, mode: state.mode, status: state.safeTStatus, limit: state.pageSize, offset: state.page * state.pageSize })}`);
+      const data = await readApi(`/api/safe-t?${params({ query: state.query, mode: state.mode, status: state.safeTStatus, limit: state.pageSize, offset: state.page * state.pageSize })}`);
       if (version !== state.version) return;
       state.data = data; html = safeTMarkup(data);
     } else if (view === 'settings') {
-      [productLinksSettingsModule] = await Promise.all([loadScreenModule('/product-links-settings.js'), refreshReviewSettings()]);
+      [productLinksSettingsModule] = await Promise.all([loadScreenModule('/product-links-settings.js'), refreshReviewSettings(readApi)]);
       if (version !== state.version) return;
       html = settingsMarkup();
     } else {
       inventoryPlanning ||= await inventoryPlanningReady;
       inventoryPreferences ||= inventoryPlanning.inventoryPlanningPreferences();
-      const inventory = await loadInventoryRecords(api, params({ from: null, to: null }), {
+      const inventory = await loadInventoryRecords(readApi, params({ from: null, to: null }), {
         isCurrent: () => version === state.version,
         onStock: data => {
           state.inventoryData = data;
@@ -1979,7 +2015,7 @@ async function init() {
         return null;
       },
     });
-    ({ loadAllRecords, loadInventoryRecords, fetchReadWithRetry, inventoryQuantities } = await listDataReady);
+    ({ loadAllRecords, loadRecordPage, loadInventoryRecords, fetchReadWithRetry, createReadScope, inventoryQuantities } = await listDataReady);
     state.pageSize = 10;
     state.bootstrap = await api('/api/bootstrap'); rememberReviewSettings(state.bootstrap.reviewStatuses); state.csrf = state.bootstrap.meta?.csrfToken || '';
     if (state.bootstrap.meta?.accountEmail) {

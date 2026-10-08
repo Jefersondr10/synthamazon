@@ -53,14 +53,15 @@ export async function createRepositoryWorkers(options, {maxPending = 64, workerF
     lanes.push(entry); await ready; return entry;
   }
   try {
-    // Start connections serially. Initial navigation and physical stock must
-    // never queue behind a financial projection or a demand calculation.
+    // Start a fixed number of connections serially. Initial navigation and
+    // physical stock must never queue behind a financial projection. Return
+    // history has its own bounded queue so it cannot hold up other reports.
     const reads=await lane('reports'),writes=await lane('writes'),analytics=await lane('alerts');
-    const quick=await lane('navigation'),inventory=await lane('inventory');
+    const quick=await lane('navigation'),inventory=await lane('inventory'),returns=await lane('returns');
     const api = Object.fromEntries([...methods].map(method => [method,(...args)=>{
       const target = method==='syncSalesAlerts' ? analytics : mutations.has(method) ? writes
         : quickReads.has(method) || method==='inventory' && args[0]?.forecast!=='true' ? quick
-        : method==='inventory' ? inventory : reads;
+        : method==='inventory' ? inventory : method==='returns' ? returns : reads;
       return target.call(method,args);
     }]));
     api.close = async () => {closed=true;await Promise.all(lanes.map(item=>item.close()));};

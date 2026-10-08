@@ -62,3 +62,56 @@ test('blocked reports cannot hold startup or stock; duplicate reads share work w
   const fresh=api.dashboard({storeId:'all'});assert.equal(reports.calls.length,2);reports.reply(reports.calls[1]);await fresh;
   await api.close();
 });
+
+test('return history has a fixed, bounded lane and cannot block other reports or edits', async t => {
+  const workers=[];
+  const workerFactory=(_url,config)=>{
+    const worker=new EventEmitter();worker.name=config.name;worker.calls=[];
+    worker.postMessage=call=>worker.calls.push(call);
+    worker.reply=call=>worker.emit('message',{id:call.id,value:{method:call.method,lane:worker.name}});
+    worker.terminate=async()=>{worker.emit('exit',0);};
+    workers.push(worker);queueMicrotask(()=>worker.emit('message',{ready:true}));return worker;
+  };
+  const api=await createRepositoryWorkers({},{workerFactory,maxPending:2});
+  t.after(()=>api.close());
+  assert.deepEqual(workers.map(worker=>worker.name),['reports','writes','alerts','navigation','inventory','returns']);
+  const returns=workers.find(worker=>worker.name==='returns');
+  const reports=workers.find(worker=>worker.name==='reports');
+  const writes=workers.find(worker=>worker.name==='writes');
+  let returnFinished=false;
+  const history=api.returns({storeId:'all',offset:0}).then(value=>{returnFinished=true;return value;});
+  const nextPage=api.returns({storeId:'all',offset:500});
+  // Identical reads still share pending work, even when the lane is full.
+  const duplicate=api.returns({storeId:'all',offset:0});
+  assert.equal(returns.calls.length,2);
+  await assert.rejects(api.returns({storeId:'all',offset:1000}),{code:'REPOSITORY_BUSY'});
+  assert.equal(workers.length,6);
+
+  const dashboard=api.dashboard({storeId:'all'});
+  const orders=api.orders({storeId:'all'});
+  const edit=api.saveReturnedManagement({storeId:'a',orderId:'example'});
+  assert.equal(reports.calls.length,2);assert.equal(writes.calls.length,1);
+  for (const call of reports.calls) reports.reply(call);
+  writes.reply(writes.calls[0]);
+  assert.equal((await dashboard).lane,'reports');
+  assert.equal((await orders).lane,'reports');
+  assert.equal((await edit).lane,'writes');
+  assert.equal(returnFinished,false);
+
+  returns.reply(returns.calls[0]);
+  assert.deepEqual(await history,await duplicate);
+  const freedSlot=api.returns({storeId:'all',offset:1000});
+  assert.equal(returns.calls.length,3);
+  returns.reply(returns.calls[1]);returns.reply(returns.calls[2]);
+  await Promise.all([nextPage,freedSlot]);
+
+  // Isolation works in both directions: an unrelated report does not hold
+  // a return request after the previous return history has finished.
+  let reportFinished=false;
+  const blockedReport=api.productSales({storeId:'all'}).then(value=>{reportFinished=true;return value;});
+  const freshHistory=api.returns({storeId:'all',offset:0});
+  returns.reply(returns.calls[3]);
+  assert.equal((await freshHistory).lane,'returns');
+  assert.equal(reportFinished,false);
+  reports.reply(reports.calls[2]);await blockedReport;
+});
